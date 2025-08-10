@@ -6,21 +6,30 @@ using TodoID = int;
 
 internal class Program
 {
-    static readonly private Cmd[] cmds = [
+    static readonly private Cmd[] _cmds = [
         new()
         {
-            Name = "add",
-            Description = "Add a new todo",
-            UsageText = "todo add <title>",
-            Handler = static (db, args) =>
-            {
-                if (args.Length != 1) throw new CLIException($"Expected 1 argument, got {args.Length}");
+            Name = "help",
+            Description = "Display help message",
+            UsageText = "todo help",
+            Handler = static (_, args) => {
+                switch (args.Length) {
+                    case 0: DisplayHelpMessage(); break;
+                    case 1: {
+                        string cmdName = args[0];
+                        Cmd? cmd = _cmds!.FirstOrDefault(cmd => cmd.Name == cmdName);
+                        if (cmd == null) {
+                            Console.WriteLine($"Unknown command '{cmdName}'");
+                            Console.WriteLine();
+                            DisplayCmdList();
+                            return;
+                        }
 
-                string title = args[0];
+                        Console.WriteLine(cmd.UsageText);
+                    }; break;
 
-                TodoID id = db.Add(title);
-
-                Console.WriteLine($"Todo added successfully. ID = {id}");
+                    default: throw new CLIException($"Expected 0 or 1 arguments, got {args.Length}");
+                }
             },
         },
         new()
@@ -85,16 +94,19 @@ internal class Program
         if (args.Length <= 0)
         {
             Console.WriteLine("Expected a command name, but got none");
+            DisplayHelpMessage();
             return 1;
         }
 
         using var db = new DB();
 
         string cmdName = args[0];
-        Cmd? cmd = cmds.FirstOrDefault(it => it.Name == cmdName);
+        Cmd? cmd = _cmds.FirstOrDefault(it => it.Name == cmdName);
         if (cmd == null)
         {
             Console.WriteLine($"Unknown command '{cmdName}'");
+            Console.WriteLine();
+            DisplayCmdList();
             return 1;
         }
 
@@ -112,7 +124,21 @@ internal class Program
         }
     }
 
+    private static void DisplayHelpMessage()
+    {
+        Console.WriteLine("Usage: todos <command> [...args]");
+        Console.WriteLine();
+        DisplayCmdList();
+    }
 
+    private static void DisplayCmdList()
+    {
+        Console.WriteLine("Commands:");
+        foreach (var cmd in _cmds)
+        {
+            Console.WriteLine($"  {cmd.Name,-18}{cmd.Description}");
+        }
+    }
 }
 
 internal class CLIException(string message, Exception? innerException = null) : Exception(message, innerException);
