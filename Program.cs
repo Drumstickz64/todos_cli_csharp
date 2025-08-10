@@ -88,7 +88,7 @@ internal class Program
             return 1;
         }
 
-        var db = new DB();
+        using var db = new DB();
 
         string cmdName = args[0];
         Cmd? cmd = cmds.FirstOrDefault(it => it.Name == cmdName);
@@ -101,8 +101,6 @@ internal class Program
         try
         {
             cmd.Handler(db, args[1..]);
-
-            db.Save();
 
             return 0;
         }
@@ -119,7 +117,7 @@ internal class Program
 
 internal class CLIException(string message, Exception? innerException = null) : Exception(message, innerException);
 
-internal class DB
+internal class DB : IDisposable
 {
     private readonly List<Item> _items = [];
 
@@ -165,6 +163,11 @@ internal class DB
 
         _items[id].Done = !_items[id].Done;
         return true;
+    }
+
+    public void Dispose()
+    {
+        Save();
     }
 }
 
