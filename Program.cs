@@ -1,4 +1,6 @@
-﻿using System.Text.Json;
+﻿using System.Diagnostics;
+using System.Text.Json;
+using Microsoft.Data.Sqlite;
 
 namespace TodoList;
 
@@ -34,6 +36,22 @@ internal class Program
         },
         new()
         {
+            Name = "add",
+            Description = "Add a new todo",
+            UsageText = "todo add <title>",
+            Handler = static (db, args) =>
+            {
+                if (args.Length != 1) throw new CLIException($"Expected 1 argument, got {args.Length}");
+
+                string title = args[0];
+
+                TodoID id = db.Add(title);
+
+                Console.WriteLine($"Todo added successfully. ID = {id}");
+            },
+        },
+        new()
+        {
             Name = "remove",
             Description = "Remove a todo by ID",
             UsageText = "todo remove <id>",
@@ -60,9 +78,10 @@ internal class Program
                 if (args.Length > 0)
                     throw new CLIException($"Expected 0 arguments, got {args.Length}");
 
-                for (int i = 0; i < db.Items.Count; ++i)
+                List<Item> items = db.GetAll();
+                foreach (var item in items)
                 {
-                    Console.WriteLine($"  {i:D4}: {db.Items[i]}");
+                    Console.WriteLine($"  {item}");
                 }
             },
         },
@@ -98,7 +117,7 @@ internal class Program
             return 1;
         }
 
-        using var db = new DB();
+        using var db = new SqliteDB();
 
         string cmdName = args[0];
         Cmd? cmd = _cmds.FirstOrDefault(it => it.Name == cmdName);
@@ -143,22 +162,42 @@ internal class Program
 
 internal class CLIException(string message, Exception? innerException = null) : Exception(message, innerException);
 
-internal class DB : IDisposable
+internal interface IDB : IDisposable
+{
+    public List<Item> GetAll();
+
+    public Item Get(TodoID id);
+
+    public TodoID Add(string title);
+
+    public bool Remove(TodoID id);
+
+    public bool Toggle(TodoID id);
+}
+
+internal class JsonDB : IDB
 {
     private readonly List<Item> _items = [];
 
-    public IReadOnlyList<Item> Items => _items;
-
-    public DB()
+    public JsonDB()
     {
         string json = File.ReadAllText("db.json");
         _items = JsonSerializer.Deserialize<List<Item>>(json)!;
+    }
+
+    public void Dispose()
+    {
+        Save();
     }
 
     public void Save()
     {
         string json = JsonSerializer.Serialize(_items);
         File.WriteAllText("db.json", json);
+    }
+    public List<Item> GetAll()
+    {
+        return [.. _items];
     }
 
     public Item Get(TodoID id)
@@ -168,11 +207,13 @@ internal class DB : IDisposable
 
     public TodoID Add(string title)
     {
+        int id = _items.Count - 1;
         _items.Add(new Item
         {
+            ID = id,
             Title = title,
         });
-        return _items.Count - 1;
+        return id;
     }
 
     public bool Remove(TodoID id)
@@ -190,21 +231,168 @@ internal class DB : IDisposable
         _items[id].Done = !_items[id].Done;
         return true;
     }
+}
+
+internal sealed class SqliteDB : IDB
+{
+    private readonly SqliteConnection conn;
+
+    public SqliteDB()
+    {
+        conn = new SqliteConnection("Data Source=TodoList.db");
+        conn.Open();
+
+        var command = conn.CreateCommand();
+        command.CommandText =
+        @"
+            CREATE TABLE IF NOT EXISTS todos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                done INTEGER DEFAULT 0
+            );
+        ";
+
+        command.ExecuteNonQuery();
+    }
 
     public void Dispose()
     {
-        Save();
+        conn.Dispose();
+    }
+
+    public TodoID Add(string title)
+    {
+        conn.Open();
+
+        var command = conn.CreateCommand();
+        command.CommandText =
+        @"
+            INSERT INTO todos (title) VALUES ($title);
+        ";
+
+        command.Parameters.AddWithValue("$title", title);
+
+        command.ExecuteNonQuery();
+
+        var idCommand = conn.CreateCommand();
+        idCommand.CommandText = @"SELECT last_insert_rowid()";
+        var id = (long)idCommand.ExecuteScalar()!;
+
+        return (int)id;
+    }
+
+    public Item Get(int id)
+    {
+        conn.Open();
+
+        var command = conn.CreateCommand();
+        command.CommandText =
+        @"
+            SELECT * FROM todos WHERE id = $id;
+        ";
+
+        command.Parameters.AddWithValue("$id", id);
+
+        using var reader = command.ExecuteReader();
+
+        reader.Read();
+
+        TodoID inDBId = reader.GetInt32(0);
+        string title = reader.GetString(1);
+        bool done = reader.GetBoolean(2);
+
+        Debug.Assert(inDBId == id);
+
+        var item = new Item
+        {
+            ID = inDBId,
+            Title = title,
+            Done = done,
+        };
+
+        return item;
+    }
+
+    public List<Item> GetAll()
+    {
+        conn.Open();
+
+        var command = conn.CreateCommand();
+        command.CommandText =
+        @"
+            SELECT * FROM todos;
+        ";
+
+        using var reader = command.ExecuteReader();
+
+        var items = new List<Item>();
+        while (reader.Read())
+        {
+            TodoID id = reader.GetInt32(0);
+            string title = reader.GetString(1);
+            bool done = reader.GetBoolean(2);
+
+            items.Add(new Item
+            {
+                ID = id,
+                Title = title,
+                Done = done,
+            });
+        }
+
+        return items;
+    }
+
+    public bool Remove(int id)
+    {
+        conn.Open();
+
+        var command = conn.CreateCommand();
+        command.CommandText =
+        @"
+            DELETE FROM todos WHERE id = $id;
+        ";
+
+        command.Parameters.AddWithValue("$id", id);
+
+        int removedCount = command.ExecuteNonQuery();
+        if (removedCount > 1)
+            throw new Exception($"ASSERTION FAILED: expected remove command to always remove 0 or 1 todos, but it removed {removedCount} todos");
+
+        return removedCount == 1;
+    }
+
+    public bool Toggle(int id)
+    {
+        conn.Open();
+
+        var command = conn.CreateCommand();
+        command.CommandText =
+        @"
+            UPDATE todos
+            SET done = 1 - done
+            WHERE id = $id;
+        ";
+
+        command.Parameters.AddWithValue("$id", id);
+
+        int updatedCount = command.ExecuteNonQuery();
+        if (updatedCount > 1)
+            throw new Exception($"ASSERTION FAILED: expected toggle command to always update 0 or 1 todos, but it removed {updatedCount} todos");
+
+        return updatedCount == 1;
     }
 }
 
 internal record Item
 {
+    public required int ID { get; set; }
     public required string Title { get; set; }
     public bool Done { get; set; } = false;
 
     public override string ToString()
     {
-        return $"{(Done ? "[X]" : "[ ]")} {Title}";
+        return $"{ID:D4}: {(Done ? "[X]" : "[ ]")} {Title}";
     }
 }
 
@@ -213,5 +401,5 @@ internal record Cmd
     public required string Name { get; init; }
     public required string Description { get; init; }
     public required string UsageText { get; init; }
-    public required Action<DB, string[]> Handler { get; init; }
+    public required Action<IDB, string[]> Handler { get; init; }
 }
