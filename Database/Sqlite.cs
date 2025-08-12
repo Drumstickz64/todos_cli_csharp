@@ -1,154 +1,71 @@
-using System.Diagnostics;
-using Microsoft.Data.Sqlite;
+using System.Reflection.Metadata.Ecma335;
+using Microsoft.EntityFrameworkCore;
 using TodoList.Core;
 
 namespace TodoList.Database;
 
-sealed class SQLiteDatabase : IDatabase
+sealed class SQLiteDatabase(string path) : IDatabase
 {
-    private readonly SqliteConnection conn;
-
-    public SQLiteDatabase(string path)
-    {
-        conn = new SqliteConnection($"Data Source={path}");
-        conn.Open();
-
-        var command = conn.CreateCommand();
-        command.CommandText =
-        @"
-            CREATE TABLE IF NOT EXISTS todos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                done INTEGER DEFAULT 0
-            );
-        ";
-
-        command.ExecuteNonQuery();
-    }
+    private TodosContext _ctx = new(path);
 
     public void Dispose()
     {
-        conn.Dispose();
+        _ctx.Dispose();
     }
 
     public int Add(string title)
     {
-        conn.Open();
 
-        var command = conn.CreateCommand();
-        command.CommandText =
-        @"
-            INSERT INTO todos (title) VALUES ($title);
-        ";
+        Item item = new() { Title = title };
+        _ctx.Add(item);
+        _ctx.SaveChanges();
+        return item.ID;
 
-        command.Parameters.AddWithValue("$title", title);
-
-        command.ExecuteNonQuery();
-
-        var idCommand = conn.CreateCommand();
-        idCommand.CommandText = @"SELECT last_insert_rowid()";
-        var id = (long)idCommand.ExecuteScalar()!;
-
-        return (int)id;
     }
 
     public Item Get(int id)
     {
-        conn.Open();
-
-        var command = conn.CreateCommand();
-        command.CommandText =
-        @"
-            SELECT * FROM todos WHERE id = $id;
-        ";
-
-        command.Parameters.AddWithValue("$id", id);
-
-        using var reader = command.ExecuteReader();
-
-        reader.Read();
-
-        int inDBId = reader.GetInt32(0);
-        string title = reader.GetString(1);
-        bool done = reader.GetBoolean(2);
-
-        Debug.Assert(inDBId == id);
-
-        var item = new Item(
-            ID: inDBId,
-            Title: title,
-            Done: done
-        );
-
-        return item;
+        return _ctx.Find<Item>(id) ?? throw new Exception($"No todo item with the id {id} was found");
     }
 
     public List<Item> GetAll()
     {
-        conn.Open();
-
-        var command = conn.CreateCommand();
-        command.CommandText =
-        @"
-            SELECT * FROM todos;
-        ";
-
-        using var reader = command.ExecuteReader();
-
-        var items = new List<Item>();
-        while (reader.Read())
-        {
-            int id = reader.GetInt32(0);
-            string title = reader.GetString(1);
-            bool done = reader.GetBoolean(2);
-
-            items.Add(new Item(
-                ID: id,
-                Title: title,
-                Done: done
-            ));
-        }
-
-        return items;
+        return [.. _ctx.Items];
     }
 
     public bool Remove(int id)
     {
-        conn.Open();
+        Item? item = _ctx.Find<Item>(id);
+        if (item is null) return false;
 
-        var command = conn.CreateCommand();
-        command.CommandText =
-        @"
-            DELETE FROM todos WHERE id = $id;
-        ";
-
-        command.Parameters.AddWithValue("$id", id);
-
-        int removedCount = command.ExecuteNonQuery();
-        if (removedCount > 1)
-            throw new Exception($"ASSERTION FAILED: expected remove command to always remove 0 or 1 todos, but it removed {removedCount} todos");
-
-        return removedCount == 1;
+        _ctx.Remove(item);
+        _ctx.SaveChanges();
+        return true;
     }
 
     public bool Toggle(int id)
     {
-        conn.Open();
+        Item? item = _ctx.Find<Item>(id);
+        if (item is null) return false;
 
-        var command = conn.CreateCommand();
-        command.CommandText =
-        @"
-            UPDATE todos
-            SET done = 1 - done
-            WHERE id = $id;
-        ";
+        item.Done = !item.Done;
+        _ctx.SaveChanges();
+        return true;
+    }
 
-        command.Parameters.AddWithValue("$id", id);
+    public class TodosContext() : DbContext()
+    {
+        private readonly string _dbPath = "todos.db";
 
-        int updatedCount = command.ExecuteNonQuery();
-        if (updatedCount > 1)
-            throw new Exception($"ASSERTION FAILED: expected toggle command to always update 0 or 1 todos, but it removed {updatedCount} todos");
+        public DbSet<Item> Items { get; set; }
 
-        return updatedCount == 1;
+        public string DbPath => _dbPath;
+
+        internal TodosContext(string path) : this()
+        {
+            _dbPath = path;
+        }
+
+        protected override void OnConfiguring(DbContextOptionsBuilder options) => options.UseSqlite($"Data source=todos.db");
     }
 }

@@ -136,7 +136,15 @@ static class CLI
     }
 }
 
-class CLIException(string message, Exception? innerException = null) : Exception(message, innerException);
+public class CLIException : Exception
+{
+    public CLIException() : base() { }
+
+    public CLIException(string message) : base(message) { }
+
+    public CLIException(string message, Exception innerException)
+        : base(message, innerException) { }
+}
 
 record class Cmd(
     string Name,

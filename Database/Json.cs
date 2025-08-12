@@ -37,17 +37,19 @@ sealed class JSONDatabase : IDatabase
 
     public Item Get(int id)
     {
+        if (id >= _items.Count) throw new DatabaseException($"No todo item with the id {id} was found");
         return _items[id];
     }
 
     public int Add(string title)
     {
         int id = _items.Count;
-        _items.Add(new Item(
-            ID: id,
-            Title: title,
-            Done: false
-        ));
+        _items.Add(new Item()
+        {
+            ID = id,
+            Title = title,
+            Done = false
+        });
         return id;
     }
 
@@ -63,7 +65,7 @@ sealed class JSONDatabase : IDatabase
     {
         if (id >= _items.Count) return false;
 
-        _items[id] = _items[id] with { Done = !_items[id].Done };
+        _items[id].Done = !_items[id].Done;
         return true;
     }
 }
