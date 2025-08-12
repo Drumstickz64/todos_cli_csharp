@@ -43,11 +43,11 @@ sealed class JSONDatabase : IDatabase
     public int Add(string title)
     {
         int id = _items.Count;
-        _items.Add(new Item
-        {
-            ID = id,
-            Title = title,
-        });
+        _items.Add(new Item(
+            ID: id,
+            Title: title,
+            Done: false
+        ));
         return id;
     }
 
@@ -63,7 +63,7 @@ sealed class JSONDatabase : IDatabase
     {
         if (id >= _items.Count) return false;
 
-        _items[id].Done = !_items[id].Done;
+        _items[id] = _items[id] with { Done = !_items[id].Done };
         return true;
     }
 }

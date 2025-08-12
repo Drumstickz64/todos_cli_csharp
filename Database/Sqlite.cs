@@ -74,12 +74,11 @@ sealed class SQLiteDatabase : IDatabase
 
         Debug.Assert(inDBId == id);
 
-        var item = new Item
-        {
-            ID = inDBId,
-            Title = title,
-            Done = done,
-        };
+        var item = new Item(
+            ID: inDBId,
+            Title: title,
+            Done: done
+        );
 
         return item;
     }
@@ -103,12 +102,11 @@ sealed class SQLiteDatabase : IDatabase
             string title = reader.GetString(1);
             bool done = reader.GetBoolean(2);
 
-            items.Add(new Item
-            {
-                ID = id,
-                Title = title,
-                Done = done,
-            });
+            items.Add(new Item(
+                ID: id,
+                Title: title,
+                Done: done
+            ));
         }
 
         return items;
