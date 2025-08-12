@@ -3,14 +3,21 @@ using System.Text.Json;
 using TodoList.Core;
 namespace TodoList.Database;
 
-sealed class JsonDatabase : IDatabase
+sealed class JSONDatabase : IDatabase
 {
     private readonly List<Item> _items = [];
+    private readonly string _path;
 
-    public JsonDatabase(string path)
+    public JSONDatabase(string path)
     {
-        string json = File.ReadAllText(path);
-        _items = JsonSerializer.Deserialize<List<Item>>(json)!;
+        _path = path;
+
+        try
+        {
+            string json = File.ReadAllText(path);
+            _items = JsonSerializer.Deserialize<List<Item>>(json)!;
+        }
+        catch (FileNotFoundException) { }
     }
 
     public void Dispose()
@@ -21,7 +28,7 @@ sealed class JsonDatabase : IDatabase
     public void Save()
     {
         string json = JsonSerializer.Serialize(_items);
-        File.WriteAllText("db.json", json);
+        File.WriteAllText(_path, json);
     }
     public List<Item> GetAll()
     {
@@ -35,7 +42,7 @@ sealed class JsonDatabase : IDatabase
 
     public int Add(string title)
     {
-        int id = _items.Count - 1;
+        int id = _items.Count;
         _items.Add(new Item
         {
             ID = id,

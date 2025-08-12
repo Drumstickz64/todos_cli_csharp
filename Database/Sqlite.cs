@@ -4,11 +4,11 @@ using TodoList.Core;
 
 namespace TodoList.Database;
 
-sealed class SqliteDatabase : IDatabase
+sealed class SQLiteDatabase : IDatabase
 {
     private readonly SqliteConnection conn;
 
-    public SqliteDatabase(string path)
+    public SQLiteDatabase(string path)
     {
         conn = new SqliteConnection($"Data Source={path}");
         conn.Open();
