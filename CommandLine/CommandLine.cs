@@ -9,7 +9,7 @@ static class CLI
         new(
             Name: "help",
             Description: "Display help message",
-            UsageText: "todo help",
+            UsageText: "todo help [command]",
             Handler: static (_, args) => {
                 switch (args.Length) {
                     case 0:
@@ -17,14 +17,14 @@ static class CLI
                     case 1:
                         {
                             string cmdName = args[0];
-                            Cmd? cmd = _cmds!.FirstOrDefault(cmd => cmd.Name == cmdName);
+                            Cmd? cmd = _cmds!.FirstOrDefault(cmd => cmd.MatchesName(cmdName));
                             if (cmd == null) {
                                 Console.WriteLine($"Unknown command '{cmdName}'");
                                 Console.WriteLine();
                                 DisplayCmdList();
                                 return;
                             }
-                            Console.WriteLine(cmd.UsageText);
+                            Console.WriteLine($"Usage: {cmd.UsageText}");
                         }
                         break;
                     default:
@@ -36,6 +36,7 @@ static class CLI
             Name: "add",
             Description: "Add a new todo",
             UsageText: "todo add <title>",
+            Aliases: ["a", "insert"],
             Handler: static (db, args) => {
                 if (args.Length != 1) throw new CLIException($"Expected 1 argument, got {args.Length}");
                 string title = args[0];
@@ -47,6 +48,7 @@ static class CLI
             Name: "remove",
             Description: "Remove a todo by ID",
             UsageText: "todo remove <id>",
+            Aliases: ["r", "delete"],
             Handler: static (db, args) => {
                 if (args.Length != 1) throw new CLIException($"Expected 1 argument, got {args.Length}");
                 string idStr = args[0];
@@ -60,6 +62,7 @@ static class CLI
             Name: "list",
             Description: "List all todos",
             UsageText: "todo list",
+            Aliases: ["l", "display"],
             Handler: static (db, args) => {
                 if (args.Length > 0)
                     throw new CLIException($"Expected 0 arguments, got {args.Length}");
@@ -74,6 +77,7 @@ static class CLI
             Name: "toggle",
             Description: "Toggle the status of a todo by ID",
             UsageText: "todo toggle <id>",
+            Aliases: ["t", "check"],
             Handler: static (db, args) => {
                 if (args.Length != 1) throw new CLIException($"Expected 1 argument, got {args.Length}");
                 string idStr = args[0];
@@ -97,7 +101,7 @@ static class CLI
         }
 
         string cmdName = args[0];
-        Cmd? cmd = _cmds.FirstOrDefault(it => it.Name == cmdName);
+        Cmd? cmd = _cmds.FirstOrDefault(cmd => cmd.MatchesName(cmdName));
         if (cmd is null)
         {
             Console.WriteLine($"Unknown command '{cmdName}'");
@@ -129,9 +133,18 @@ static class CLI
     private static void DisplayCmdList()
     {
         Console.WriteLine("Commands:");
-        foreach (var cmd in _cmds)
+
+        var aliasStrings = _cmds.Select(cmd =>
         {
-            Console.WriteLine($"  {cmd.Name,-18}{cmd.Description}");
+            return $"aliases: {string.Join(", ", cmd.Aliases)}";
+        });
+
+        int maxNameWidth = _cmds.Max(cmd => cmd.Name.Length);
+        int maxAliasWidth = aliasStrings.Max(str => str.Length);
+
+        foreach (var (cmd, aliasString) in _cmds.Zip(aliasStrings))
+        {
+            Console.WriteLine($"  {cmd.Name.PadRight(maxNameWidth + 2)} {aliasString.PadRight(maxAliasWidth + 5)} {cmd.Description}");
         }
     }
 }
@@ -150,5 +163,17 @@ record class Cmd(
     string Name,
     string Description,
     string UsageText,
-    Action<IDatabase, string[]> Handler
-);
+    Action<IDatabase, string[]> Handler,
+    string[] Aliases
+)
+{
+    public Cmd(
+        string Name,
+        string Description,
+        string UsageText,
+        Action<IDatabase, string[]> Handler
+    ) : this(Name, Description, UsageText, Handler, [])
+    { }
+
+    public bool MatchesName(string name) => name == Name || Aliases.Contains(name);
+};
